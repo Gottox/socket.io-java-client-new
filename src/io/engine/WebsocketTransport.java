@@ -8,11 +8,8 @@
  */
 package io.engine;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
-import java.util.regex.Pattern;
 
 import de.roderick.weberknecht.WebSocketConnection;
 import de.roderick.weberknecht.WebSocketEventHandler;
@@ -33,11 +30,15 @@ class WebsocketTransport implements IOTransport, WebSocketEventHandler {
 	private EngineIO engine;
 
 	@Override
-	public void open(EngineIO engine) throws WebSocketException,
+	public void init(EngineIO engine) throws WebSocketException,
 			URISyntaxException {
 		this.engine = engine;
+	}
+	
+	public void open() throws Exception {
 		websocket = new WebSocketConnection(genURI());
 		websocket.setEventHandler(this);
+		websocket.connect();
 	}
 
 	private URI genURI() throws URISyntaxException {
@@ -47,22 +48,23 @@ class WebsocketTransport implements IOTransport, WebSocketEventHandler {
 	}
 
 	@Override
-	public String getName() {
+	public String getTransportName() {
 		return NAME;
 	}
 
 	@Override
 	public void onClose() {
-		engine.transportDisconnected(this);
+		engine.transportClose(this);
 	}
 
 	@Override
 	public void onMessage(WebSocketMessage message) {
-		engine.transportReceived(this, message.getText());
+		engine.transportPacket(this, message.getText());
 	}
 
 	@Override
 	public void onOpen() {
+		engine.transportOpen(this);
 	}
 
 	@Override
