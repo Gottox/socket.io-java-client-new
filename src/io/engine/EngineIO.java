@@ -41,7 +41,7 @@ public class EngineIO implements EngineIOCallback {
 
 	private String host = "localhost";
 	private int port = 80;
-	private String resource = "default";
+	private String resource = "";
 	private ConcurrentHashMap<String, String> query = null;
 	private boolean secure = false;
 	private String basePath = "/engine.io";
@@ -276,7 +276,7 @@ public class EngineIO implements EngineIOCallback {
 				receivedClose(transport);
 				break;
 			case TYPE_PING:
-				send(TYPE_PONG + message.toString());
+				send(transport, TYPE_PONG, message.toString());
 				break;
 			case TYPE_PONG:
 				receivedPong(transport, message);
@@ -295,16 +295,21 @@ public class EngineIO implements EngineIOCallback {
 
 	synchronized void transportFailed(IOTransport transport, String message,
 			Exception exception) {
-		setState(STATE_INTERUPTED);
+		if (transport == upgradingTransport && getState() == STATE_UPGRADING)
+			setState(STATE_CONNECTED);
+		else
+			setState(STATE_INTERUPTED);
 		logger.log(Level.WARNING, message, exception);
 	}
 
 	synchronized void transportClose(IOTransport transport) {
-		setState(STATE_INTERUPTED);
-		try {
-			currentTransport.open();
-		} catch (Exception e) {
-			transportFailed(currentTransport, "Failed while reopening", e);
+		if (transport == currentTransport) {
+			setState(STATE_INTERUPTED);
+			try {
+				currentTransport.open();
+			} catch (Exception e) {
+				transportFailed(currentTransport, "Failed while reopening", e);
+			}
 		}
 	}
 
@@ -312,9 +317,21 @@ public class EngineIO implements EngineIOCallback {
 		this.sid = sid;
 	}
 
-	public synchronized void send(String data) {
+	public void send(String data) {
+		send(TYPE_MESSAGE, data);
+	}
+
+	private void send(char type, String data) {
+		send(currentTransport, type, data);
+	}
+
+	private synchronized void send(IOTransport transport, char type, String data) {
+		logger.info("> " + data);
 		try {
-			currentTransport.send(TYPE_MESSAGE + data);
+			if (currentTransport.canSendBulk())
+				currentTransport.send(new String[] { TYPE_MESSAGE + data });
+			else
+				currentTransport.send(TYPE_MESSAGE + data);
 		} catch (Exception e) {
 			output.add(data);
 		}
@@ -322,7 +339,7 @@ public class EngineIO implements EngineIOCallback {
 
 	public void close() {
 		try {
-			currentTransport.send("" + TYPE_CLOSE);
+			send(TYPE_CLOSE, "");
 			setState(STATE_INVALID);
 		} catch (Exception e) {
 			// TODO
@@ -333,7 +350,7 @@ public class EngineIO implements EngineIOCallback {
 		if (getState() == STATE_UPGRADING && transport == upgradingTransport
 				&& PROBE.equals(message)) {
 			try {
-				transport.send("" + TYPE_UPGRADE);
+				send(transport, TYPE_UPGRADE, "");
 				currentTransport = transport;
 				logger.info("Upgrade successful");
 			} catch (Exception e) {
@@ -357,14 +374,13 @@ public class EngineIO implements EngineIOCallback {
 				if (upgradingTransport != null) {
 					setState(STATE_UPGRADING);
 					try {
-						upgradingTransport.send(TYPE_PING + "probe");
+						send(upgradingTransport, TYPE_PING, "probe");
 					} catch (Exception e) {
 						setState(STATE_CONNECTED);
 						upgradingTransport = null;
 					}
 				}
-			}
-			else {
+			} else {
 				setState(STATE_CONNECTED);
 			}
 

@@ -36,12 +36,12 @@ class PollingTransport implements IOTransport, Runnable {
 
 	public PollingTransport() {
 	}
-	
+
 	@Override
 	public void init(EngineIO engine) throws Exception {
 		this.engine = engine;
 	}
-	
+
 	public void open() throws Exception {
 		urlConnection = (HttpURLConnection) genURL().openConnection();
 		pollthread = new Thread(this, "PollingTransport");
@@ -49,17 +49,19 @@ class PollingTransport implements IOTransport, Runnable {
 	}
 
 	@Override
-	public void run() {
+	public synchronized void run() {
 		try {
-			InputStreamReader input = new InputStreamReader(urlConnection.getInputStream());
+			InputStreamReader input = new InputStreamReader(
+					urlConnection.getInputStream());
 			engine.transportOpen(this);
 			engine.transportPayload(this, input);
 			engine.transportClose(this);
 		} catch (IOException e) {
-			engine.transportFailed(this, "Error while initialising connection", e);
+			engine.transportFailed(this, "Error while initialising connection",
+					e);
 		}
 	}
-	
+
 	private URL genURL() throws MalformedURLException {
 		String protocol = engine.isSecure() ? "https://" : "http://";
 		return new URL(protocol + engine.getHost() + ":" + engine.getPort()
@@ -74,22 +76,26 @@ class PollingTransport implements IOTransport, Runnable {
 	}
 
 	@Override
-	public synchronized void send(String[] data) throws Exception {
+	public void send(String[] data) throws Exception {
 		urlConnection.disconnect();
-		HttpURLConnection post = (HttpURLConnection) genURL().openConnection();
-		post.setDoOutput(true);
-		OutputStreamWriter output = new OutputStreamWriter(post.getOutputStream());
-		for(String packet : data) {
-			output.append(packet.length()+":"+packet);
+		synchronized (this) {
+			HttpURLConnection post = (HttpURLConnection) genURL()
+					.openConnection();
+			post.setDoOutput(true);
+			OutputStreamWriter output = new OutputStreamWriter(
+					post.getOutputStream());
+			for (String packet : data) {
+				output.append(packet.length() + ":" + packet);
+			}
+			output.close();
+
+			BufferedReader input = new BufferedReader(new InputStreamReader(
+					post.getInputStream()));
+			String line;
+			while ((line = input.readLine()) != null)
+				LOGGER.info("response: " + line);
+			input.close();
 		}
-		output.close();
-		
-		BufferedReader input = new BufferedReader(new InputStreamReader(post.getInputStream()));
-		String line;
-		while((line = input.readLine()) != null)
-			LOGGER.info("response: "+line);
-		input.close();
-		engine.transportClose(this);
 	}
 
 	@Override
@@ -105,7 +111,6 @@ class PollingTransport implements IOTransport, Runnable {
 
 	@Override
 	public boolean canSendBulk() {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 }
