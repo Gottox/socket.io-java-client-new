@@ -19,6 +19,7 @@ public abstract class IOTransport {
 	protected abstract void close() throws Exception;
 
 	protected void failed(String message, Exception exception) {
+		exception.printStackTrace();
 		engine.transportFailed(this, message, exception);
 	}
 
@@ -55,7 +56,7 @@ public abstract class IOTransport {
 		flush();
 	}
 
-	final public synchronized void flush() {
+	final private synchronized void flush() {
 		if (connected && buffer.isEmpty() == false) {
 			try {
 				send(buffer.iterator());
@@ -70,7 +71,7 @@ public abstract class IOTransport {
 		flush();
 	}
 
-	final void reqOpen(EngineIO engine) {
+	final void start(EngineIO engine) {
 		disconnecting = false;
 		this.engine = engine;
 		try {
@@ -80,10 +81,11 @@ public abstract class IOTransport {
 		}
 	}
 
-	final void reqClose() {
+	final void shutdown() {
 		disconnecting = true;
 		try {
 			close();
+			buffer.clear();
 		} catch (Exception e) {
 			failed("close has failed", e);
 		}
@@ -109,7 +111,7 @@ public abstract class IOTransport {
 		return engine.getBasePath() + engine.getPath();
 	}
 	
-	protected String getQuery() {
-		return engine.genQuery();
+	protected String getQuery(IOTransport transport) {
+		return engine.genQuery(transport);
 	}
 }

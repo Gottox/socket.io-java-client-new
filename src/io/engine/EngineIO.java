@@ -39,31 +39,33 @@ public class EngineIO implements EngineIOCallback {
 	private boolean secure = false;
 	private String basePath = "/engine.io";
 	private boolean upgrade = true;
-	private IOTransport[] transports = new IOTransport[] { new PollingTransport(), new WebsocketTransport() };
+	private IOTransport[] transports = new IOTransport[] {
+			new PollingTransport(), new WebsocketTransport() };
 	private EngineIOCallback callback = this;
 	private String uid;
 	private String sid;
-	private int pingTimeout;
+	private int pingTimeout = 10000;
 
 	private IOTransport currentTransport = null;
 	private IOTransport upgradingTransport = null;
-	
+
 	private final Timer timer = new Timer("background timer");
-	
+
 	private PingTimeoutTask pingTimeoutTask;
-	
+	private Exception lastException = null;
+
 	private final class PingTimeoutTask extends TimerTask {
 		@Override
 		public void run() {
-			currentTransport.reqClose();
-			onError(new EngineIOException("Timeout occured"));
+			currentTransport.shutdown();
+			if (upgradingTransport != null)
+				upgradingTransport.shutdown();
+			onError(new EngineIOException("Timeout occured", lastException));
 		}
 	};
-	
-	
 
 	// Configuration BEGIN
-	
+
 	public EngineIO host(String host) {
 		this.host = host;
 		return this;
@@ -100,7 +102,7 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public EngineIO transports(IOTransport[] transports) {
-		if(transports == null || transports.length == 0)
+		if (transports == null || transports.length == 0)
 			throw new RuntimeException("Transports cannot be empty.");
 		this.transports = transports;
 		return this;
@@ -110,7 +112,7 @@ public class EngineIO implements EngineIOCallback {
 		this.callback = callback;
 		return this;
 	}
-	
+
 	// Configuration END
 
 	public String getUid() {
@@ -154,8 +156,8 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public String getCurrentTransport() {
-		return currentTransport == null ? transports[0].getName() : currentTransport
-				.getName();
+		return currentTransport == null ? transports[0].getName()
+				: currentTransport.getName();
 	}
 
 	public String getSid() {
@@ -179,7 +181,8 @@ public class EngineIO implements EngineIOCallback {
 							+ "make sure you overwrite instanceTransport(String) in EngineIO"
 							+ "to instanciate your custom EngineIOTransport.");
 		try {
-			currentTransport.reqOpen(this);
+			currentTransport.start(this);
+			resetPingTimeout();
 		} catch (Exception e) {
 			callback.onError(new EngineIOException(
 					"Error while opening connection", e));
@@ -188,21 +191,21 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	protected IOTransport instanceTransport(String[] names) {
-		if(names == null)
+		if (names == null)
 			return this.transports[0];
 		for (String name : names) {
-			for(IOTransport transport : this.transports) {
-				if(transport.getName().equals(name))
+			for (IOTransport transport : this.transports) {
+				if (transport.getName().equals(name))
 					return transport;
 			}
 		}
 		return null;
 	}
 
-	String genQuery() {
+	String genQuery(IOTransport transport) {
 		try {
 			StringBuilder builder = new StringBuilder("?uid=").append(getUid())
-					.append("&transport=").append(getCurrentTransport());
+					.append("&transport=").append(transport.getName());
 			String sid = getSid();
 			if (sid != null) {
 				builder.append("&sid=").append(URLEncoder.encode(sid, "UTF-8"));
@@ -241,14 +244,17 @@ public class EngineIO implements EngineIOCallback {
 				break;
 			case TYPE_PONG:
 				receivedPong(transport, message);
+				break;
 			case TYPE_MESSAGE:
 				onMessage(message.toString());
 				break;
 			// We're not supposed to handle them
 			case TYPE_UPGRADE:
 			default:
-				logger.warning("Received package type " + type + " we can't handle this.");
+				logger.warning("Received package type " + type
+						+ " we can't handle this.");
 			}
+			resetPingTimeout();
 		} catch (Exception e) {
 			logger.log(Level.WARNING, "Garbaged packet. Ignoring...", e);
 		}
@@ -256,7 +262,7 @@ public class EngineIO implements EngineIOCallback {
 
 	synchronized void transportFailed(IOTransport transport, String message,
 			Exception exception) {
-		logger.log(Level.WARNING, message, exception);
+		lastException = exception;
 	}
 
 	synchronized void setSid(String sid) {
@@ -282,7 +288,8 @@ public class EngineIO implements EngineIOCallback {
 	public void close() {
 		try {
 			send(TYPE_CLOSE, "");
-			currentTransport.reqClose();
+			Thread.yield();
+			currentTransport.shutdown();
 		} catch (Exception e) {
 			transportFailed(currentTransport, "failed during close", e);
 		}
@@ -313,6 +320,7 @@ public class EngineIO implements EngineIOCallback {
 					upgrades[i] = jsonUpgrades.getString(i);
 				upgradingTransport = instanceTransport(upgrades);
 				if (upgradingTransport != null) {
+					upgradingTransport.start(this);
 					try {
 						send(upgradingTransport, TYPE_PING, PROBE);
 					} catch (Exception e) {
@@ -320,14 +328,13 @@ public class EngineIO implements EngineIOCallback {
 					}
 				}
 			}
-			resetPingTimeout();
 		} catch (JSONException e) {
 			callback.onError(new EngineIOException("Garbage received", e));
 		}
 	}
 
 	private void resetPingTimeout() {
-		if(pingTimeoutTask != null)
+		if (pingTimeoutTask != null)
 			pingTimeoutTask.cancel();
 		pingTimeoutTask = new PingTimeoutTask();
 		timer.schedule(pingTimeoutTask, getPingTimeout());
@@ -335,7 +342,7 @@ public class EngineIO implements EngineIOCallback {
 
 	private void receivedClose(IOTransport transport) {
 		try {
-			currentTransport.reqClose();
+			currentTransport.shutdown();
 		} catch (Exception e) {
 			logger.log(Level.WARNING, "Error while closing transport", e);
 		}

@@ -8,8 +8,6 @@
  */
 package io.engine;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -28,7 +26,7 @@ class PollingTransport extends IOTransport implements Runnable {
 	/** The String to identify this Transport. */
 	public static final String NAME = "polling";
 
-	private Thread pollthread = null;
+	private Thread httpThread = null;
 
 	private HttpURLConnection getConnection = null;
 
@@ -36,15 +34,17 @@ class PollingTransport extends IOTransport implements Runnable {
 
 	@Override
 	protected void open() throws Exception {
-		pollthread = new Thread(this, NAME);
-		pollthread.start();
+		if(httpThread != null)
+			throw new RuntimeException("Internal Error!");
+		httpThread = new Thread(this, NAME);
+		httpThread.start();
 		setConnected(true);
 	}
 
 	private URL getUrl() throws MalformedURLException {
 		String protocol = isSecure() ? "https://" : "http://";
 			return new URL(protocol + getHost() + ":" + getPort() + getPath()
-					+ getQuery());
+					+ getQuery(this));
 	}
 
 	@Override
@@ -81,11 +81,16 @@ class PollingTransport extends IOTransport implements Runnable {
 				}
 			} catch (IOException e) {
 				failed("HTTP Thread failed", e);
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e1) {
+				}
 			} finally {
 				getConnection = null;
 				setConnected(false);
 			}
 		}
+		httpThread = null;
 	}
 
 	@Override

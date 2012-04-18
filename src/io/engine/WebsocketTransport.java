@@ -12,17 +12,58 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Iterator;
 
-import de.roderick.weberknecht.WebSocketConnection;
-import de.roderick.weberknecht.WebSocketEventHandler;
-import de.roderick.weberknecht.WebSocketException;
-import de.roderick.weberknecht.WebSocketMessage;
+import org.java_websocket.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 
 /**
  * The Class WebsocketTransport.
  */
-class WebsocketTransport extends IOTransport implements WebSocketEventHandler {
+class WebsocketTransport extends IOTransport {
 
-	WebSocketConnection websocket;
+	private class Websocket extends WebSocketClient {
+		public Websocket(URI serverURI) {
+			super(serverURI);
+		}
+
+		@Override
+		public void onOpen(ServerHandshake handshakedata) {
+			setConnected(true);
+		}
+
+		@Override
+		public void onMessage(String message) {
+			System.out.println("Websocket received");
+			packet(message);
+		}
+
+		@Override
+		public void onClose(int code, String reason, boolean remote) {
+			setConnected(false);
+			if (isDisconnecting() == false) {
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+				}
+				init();
+			}
+		}
+
+		@Override
+		public void onError(Exception ex) {
+			failed("Websocket called onError", ex);
+			setConnected(false);
+			websocket.close();
+			if (isDisconnecting() == false) {
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+				}
+				init();
+			}
+		}
+	}
+
+	Websocket websocket;
 
 	/** The String to identify this Transport */
 	public static final String NAME = "websocket";
@@ -35,26 +76,20 @@ class WebsocketTransport extends IOTransport implements WebSocketEventHandler {
 	}
 
 	@Override
-	public void open() throws WebSocketException, URISyntaxException {
+	public void open() throws URISyntaxException {
 		String protocol = isSecure() ? "wss://" : "ws://";
 		uri = new URI(protocol + getHost() + ":" + getPort() + getPath()
-				+ getQuery());
+				+ getQuery(this));
 		init();
 	}
 
 	private void init() {
 		try {
-			websocket = new WebSocketConnection(uri);
-			websocket.setEventHandler(this);
+			websocket = new Websocket(uri);
 			websocket.connect();
-		} catch (WebSocketException e) {
+		} catch (Exception e) {
 			failed("Error while init websocket", e);
 		}
-	}
-
-	@Override
-	public void onOpen() {
-		setConnected(true);
 	}
 
 	@Override
@@ -65,19 +100,7 @@ class WebsocketTransport extends IOTransport implements WebSocketEventHandler {
 	}
 
 	@Override
-	public void onMessage(WebSocketMessage message) {
-		packet(message.getText());
-	}
-
-	@Override
 	public void close() throws Exception {
 		websocket.close();
-	}
-
-	@Override
-	public void onClose() {
-		setConnected(false);
-		if (isDisconnecting() == false)
-			init();
 	}
 }

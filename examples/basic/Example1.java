@@ -19,7 +19,7 @@ public class Example1 extends EngineIO {
 	
 	@Override
 	public void onMessage(String message) {
-		System.out.println("fooo");
+		System.out.println("message: "+message);
 		this.send("answer");
 	}
 }
