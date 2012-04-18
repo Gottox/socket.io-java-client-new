@@ -10,6 +10,7 @@ package io.engine;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Iterator;
 
 import de.roderick.weberknecht.WebSocketConnection;
 import de.roderick.weberknecht.WebSocketEventHandler;
@@ -19,73 +20,64 @@ import de.roderick.weberknecht.WebSocketMessage;
 /**
  * The Class WebsocketTransport.
  */
-class WebsocketTransport implements IOTransport, WebSocketEventHandler {
+class WebsocketTransport extends IOTransport implements WebSocketEventHandler {
 
 	WebSocketConnection websocket;
 
 	/** The String to identify this Transport */
 	public static final String NAME = "websocket";
 
-	/** The EngineIO of this transport. */
-	private EngineIO engine;
+	URI uri;
 
 	@Override
-	public void init(EngineIO engine) throws WebSocketException,
-			URISyntaxException {
-		this.engine = engine;
-	}
-	
-	public void open() throws Exception {
-		websocket = new WebSocketConnection(genURI());
-		websocket.setEventHandler(this);
-		websocket.connect();
-	}
-
-	private URI genURI() throws URISyntaxException {
-		String protocol = engine.isSecure() ? "wss://" : "ws://";
-		return new URI(protocol + engine.getHost() + ":" + engine.getPort()
-				+ engine.getBasePath() + engine.getPath() + engine.genQuery());
-	}
-
-	@Override
-	public String getTransportName() {
+	public String getName() {
 		return NAME;
 	}
 
 	@Override
-	public void onClose() {
-		engine.transportClose(this);
+	public void open() throws WebSocketException, URISyntaxException {
+		String protocol = isSecure() ? "wss://" : "ws://";
+		uri = new URI(protocol + getHost() + ":" + getPort() + getPath()
+				+ getQuery());
+		init();
 	}
 
-	@Override
-	public void onMessage(WebSocketMessage message) {
-		engine.transportPacket(this, message.getText());
+	private void init() {
+		try {
+			websocket = new WebSocketConnection(uri);
+			websocket.setEventHandler(this);
+			websocket.connect();
+		} catch (WebSocketException e) {
+			failed("Error while init websocket", e);
+		}
 	}
 
 	@Override
 	public void onOpen() {
-		engine.transportOpen(this);
+		setConnected(true);
 	}
 
 	@Override
-	public void send(String data) throws WebSocketException {
-		websocket.send(data);
+	public void send(Iterator<String> data) throws Exception {
+		while (data.hasNext()) {
+			websocket.send(data.next());
+		}
 	}
 
 	@Override
-	public void send(String[] data) {
-		throw new RuntimeException(
-				"Cannot send bulk messages. Internal error."
-						+ "Please report this at https://github.com/Gottox/socket.io-java-client/issues");
+	public void onMessage(WebSocketMessage message) {
+		packet(message.getText());
 	}
 
 	@Override
-	public boolean canSendBulk() {
-		return false;
-	}
-
-	@Override
-	public void close() throws WebSocketException {
+	public void close() throws Exception {
 		websocket.close();
+	}
+
+	@Override
+	public void onClose() {
+		setConnected(false);
+		if (isDisconnecting() == false)
+			init();
 	}
 }

@@ -8,12 +8,12 @@
  */
 package io.engine;
 
-import java.io.Reader;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.util.LinkedList;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -23,12 +23,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class EngineIO implements EngineIOCallback {
-	final private int STATE_INIT = 0;
-	final private int STATE_CONNECTING = 1;
-	final private int STATE_CONNECTED = 2;
-	final private int STATE_UPGRADING = 3;
-	final private int STATE_INTERUPTED = 4;
-	final private int STATE_INVALID = 5;
 	final private char TYPE_OPEN = '0';
 	final private char TYPE_CLOSE = '1';
 	final private char TYPE_PING = '2';
@@ -37,7 +31,6 @@ public class EngineIO implements EngineIOCallback {
 	final private char TYPE_UPGRADE = '5';
 	final private String PROBE = "probe";
 	final private Logger logger = Logger.getLogger("engine.io");
-	private int state = STATE_INIT;
 
 	private String host = "localhost";
 	private int port = 80;
@@ -46,16 +39,31 @@ public class EngineIO implements EngineIOCallback {
 	private boolean secure = false;
 	private String basePath = "/engine.io";
 	private boolean upgrade = true;
-	private String[] transports = new String[] { "polling", "websocket" };
+	private IOTransport[] transports = new IOTransport[] { new PollingTransport(), new WebsocketTransport() };
 	private EngineIOCallback callback = this;
 	private String uid;
 	private String sid;
 	private int pingTimeout;
-	private LinkedList<String> output = new LinkedList<String>();
 
 	private IOTransport currentTransport = null;
 	private IOTransport upgradingTransport = null;
+	
+	private final Timer timer = new Timer("background timer");
+	
+	private PingTimeoutTask pingTimeoutTask;
+	
+	private final class PingTimeoutTask extends TimerTask {
+		@Override
+		public void run() {
+			currentTransport.reqClose();
+			onError(new EngineIOException("Timeout occured"));
+		}
+	};
+	
+	
 
+	// Configuration BEGIN
+	
 	public EngineIO host(String host) {
 		this.host = host;
 		return this;
@@ -91,7 +99,9 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
-	public EngineIO transports(String[] transports) {
+	public EngineIO transports(IOTransport[] transports) {
+		if(transports == null || transports.length == 0)
+			throw new RuntimeException("Transports cannot be empty.");
 		this.transports = transports;
 		return this;
 	}
@@ -100,6 +110,8 @@ public class EngineIO implements EngineIOCallback {
 		this.callback = callback;
 		return this;
 	}
+	
+	// Configuration END
 
 	public String getUid() {
 		return uid;
@@ -133,7 +145,7 @@ public class EngineIO implements EngineIOCallback {
 		return upgrade;
 	}
 
-	public String[] getTransports() {
+	public IOTransport[] getTransports() {
 		return transports;
 	}
 
@@ -142,8 +154,8 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public String getCurrentTransport() {
-		return currentTransport == null ? transports[0] : currentTransport
-				.getTransportName();
+		return currentTransport == null ? transports[0].getName() : currentTransport
+				.getName();
 	}
 
 	public String getSid() {
@@ -160,16 +172,14 @@ public class EngineIO implements EngineIOCallback {
 		if (currentTransport != null)
 			throw new RuntimeException(
 					"Dublicated open call. Please call open only once!");
-		currentTransport = instanceTransport(transports);
+		currentTransport = instanceTransport(null);
 		if (currentTransport == null)
 			throw new RuntimeException(
 					"No Transports to connect available. If you're implementing your own transport "
-							+ "make sure you overwrite instanceTransport(String) "
+							+ "make sure you overwrite instanceTransport(String) in EngineIO"
 							+ "to instanciate your custom EngineIOTransport.");
 		try {
-			currentTransport.init(this);
-			currentTransport.open();
-			setState(STATE_CONNECTING);
+			currentTransport.reqOpen(this);
 		} catch (Exception e) {
 			callback.onError(new EngineIOException(
 					"Error while opening connection", e));
@@ -177,12 +187,14 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
-	protected IOTransport instanceTransport(String[] transports) {
-		for (String transport : transports) {
-			if (WebsocketTransport.NAME.equals(transport))
-				return new WebsocketTransport();
-			else if (PollingTransport.NAME.equals(transport))
-				return new PollingTransport();
+	protected IOTransport instanceTransport(String[] names) {
+		if(names == null)
+			return this.transports[0];
+		for (String name : names) {
+			for(IOTransport transport : this.transports) {
+				if(transport.getName().equals(name))
+					return transport;
+			}
 		}
 		return null;
 	}
@@ -212,57 +224,6 @@ public class EngineIO implements EngineIOCallback {
 		}
 	}
 
-	void transportOpen(IOTransport transport) {
-		if (getState() == STATE_INTERUPTED) {
-			if (flush())
-				setState(STATE_CONNECTED);
-		}
-	}
-
-	private synchronized boolean flush() {
-		if (currentTransport.canSendBulk()) {
-			String[] data = output.toArray(new String[output.size()]);
-			try {
-				currentTransport.send(data);
-				output.clear();
-			} catch (Exception e) {
-				transportFailed(currentTransport, "Error while flushing", e);
-				return false;
-			}
-		} else {
-			String packet;
-			while ((packet = output.peek()) != null) {
-				try {
-					currentTransport.send(packet);
-				} catch (Exception e) {
-					output.addFirst(packet);
-					return false;
-				}
-			}
-		}
-		return true;
-	}
-
-	void transportPayload(IOTransport transport, Reader reader) {
-		try {
-			int c;
-			while ((c = reader.read()) > 0) {
-				StringBuilder sizeBuilder = new StringBuilder(4);
-				do {
-					sizeBuilder.append((char) c);
-				} while ((c = reader.read()) > 0 && ((char) c) != ':');
-
-				int left = Integer.parseInt(sizeBuilder.toString());
-				char[] buffer = new char[left];
-				while (left > 0)
-					left -= reader.read(buffer, buffer.length - left, left);
-				transportPacket(transport, new String(buffer));
-			}
-		} catch (Exception e) {
-			logger.log(Level.WARNING, "Garbaged Payload. Ignoring...", e);
-		}
-	}
-
 	void transportPacket(IOTransport transport, String data) {
 		logger.info("< " + data);
 		try {
@@ -286,7 +247,7 @@ public class EngineIO implements EngineIOCallback {
 			// We're not supposed to handle them
 			case TYPE_UPGRADE:
 			default:
-
+				logger.warning("Received package type " + type + " we can't handle this.");
 			}
 		} catch (Exception e) {
 			logger.log(Level.WARNING, "Garbaged packet. Ignoring...", e);
@@ -295,22 +256,7 @@ public class EngineIO implements EngineIOCallback {
 
 	synchronized void transportFailed(IOTransport transport, String message,
 			Exception exception) {
-		if (transport == upgradingTransport && getState() == STATE_UPGRADING)
-			setState(STATE_CONNECTED);
-		else
-			setState(STATE_INTERUPTED);
 		logger.log(Level.WARNING, message, exception);
-	}
-
-	synchronized void transportClose(IOTransport transport) {
-		if (transport == currentTransport) {
-			setState(STATE_INTERUPTED);
-			try {
-				currentTransport.open();
-			} catch (Exception e) {
-				transportFailed(currentTransport, "Failed while reopening", e);
-			}
-		}
 	}
 
 	synchronized void setSid(String sid) {
@@ -326,37 +272,32 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	private synchronized void send(IOTransport transport, char type, String data) {
-		logger.info("> " + data);
 		try {
-			if (currentTransport.canSendBulk())
-				currentTransport.send(new String[] { TYPE_MESSAGE + data });
-			else
-				currentTransport.send(TYPE_MESSAGE + data);
+			transport.bufferedSend(type + data);
 		} catch (Exception e) {
-			output.add(data);
+			transportFailed(transport, "failed during send", e);
 		}
 	}
 
 	public void close() {
 		try {
 			send(TYPE_CLOSE, "");
-			setState(STATE_INVALID);
+			currentTransport.reqClose();
 		} catch (Exception e) {
-			// TODO
+			transportFailed(currentTransport, "failed during close", e);
 		}
 	}
 
 	private void receivedPong(IOTransport transport, CharSequence message) {
-		if (getState() == STATE_UPGRADING && transport == upgradingTransport
-				&& PROBE.equals(message)) {
+		if (transport == upgradingTransport && PROBE.equals(message)) {
 			try {
 				send(transport, TYPE_UPGRADE, "");
 				currentTransport = transport;
+				upgradingTransport = null;
 				logger.info("Upgrade successful");
 			} catch (Exception e) {
 				logger.log(Level.WARNING, "Upgrade failed", e);
 			}
-			setState(STATE_CONNECTED);
 		}
 	}
 
@@ -372,38 +313,32 @@ public class EngineIO implements EngineIOCallback {
 					upgrades[i] = jsonUpgrades.getString(i);
 				upgradingTransport = instanceTransport(upgrades);
 				if (upgradingTransport != null) {
-					setState(STATE_UPGRADING);
 					try {
-						send(upgradingTransport, TYPE_PING, "probe");
+						send(upgradingTransport, TYPE_PING, PROBE);
 					} catch (Exception e) {
-						setState(STATE_CONNECTED);
 						upgradingTransport = null;
 					}
 				}
-			} else {
-				setState(STATE_CONNECTED);
 			}
-
+			resetPingTimeout();
 		} catch (JSONException e) {
 			callback.onError(new EngineIOException("Garbage received", e));
 		}
 	}
 
+	private void resetPingTimeout() {
+		if(pingTimeoutTask != null)
+			pingTimeoutTask.cancel();
+		pingTimeoutTask = new PingTimeoutTask();
+		timer.schedule(pingTimeoutTask, getPingTimeout());
+	}
+
 	private void receivedClose(IOTransport transport) {
 		try {
-			currentTransport.close();
+			currentTransport.reqClose();
 		} catch (Exception e) {
 			logger.log(Level.WARNING, "Error while closing transport", e);
 		}
-	}
-
-	private synchronized int getState() {
-		return state;
-	}
-
-	private synchronized void setState(int state) {
-		logger.info("switching from state " + this.state + " to " + state);
-		this.state = state;
 	}
 
 	private void setPingTimeout(int pingTimeout) {

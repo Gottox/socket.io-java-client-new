@@ -8,109 +8,99 @@
  */
 package io.engine;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.logging.Logger;
+import java.net.URLConnection;
+import java.util.Iterator;
 
 /**
  * The Class XhrTransport.
  */
-class PollingTransport implements IOTransport, Runnable {
+class PollingTransport extends IOTransport implements Runnable {
 
 	/** The String to identify this Transport. */
 	public static final String NAME = "polling";
 
-	private static final Logger LOGGER = Logger.getLogger("engine.io polling");
-
-	/** The connection. */
-	private EngineIO engine;
-
 	private Thread pollthread = null;
 
-	private HttpURLConnection urlConnection;
+	private HttpURLConnection getConnection = null;
 
-	public PollingTransport() {
-	}
+	private Iterator<String> queue = null;
 
 	@Override
-	public void init(EngineIO engine) throws Exception {
-		this.engine = engine;
-	}
-
-	public void open() throws Exception {
-		urlConnection = (HttpURLConnection) genURL().openConnection();
-		pollthread = new Thread(this, "PollingTransport");
+	protected void open() throws Exception {
+		pollthread = new Thread(this, NAME);
 		pollthread.start();
+		setConnected(true);
+	}
+
+	private URL getUrl() throws MalformedURLException {
+		String protocol = isSecure() ? "https://" : "http://";
+			return new URL(protocol + getHost() + ":" + getPort() + getPath()
+					+ getQuery());
 	}
 
 	@Override
-	public synchronized void run() {
-		try {
-			InputStreamReader input = new InputStreamReader(
-					urlConnection.getInputStream());
-			engine.transportOpen(this);
-			engine.transportPayload(this, input);
-			engine.transportClose(this);
-		} catch (IOException e) {
-			engine.transportFailed(this, "Error while initialising connection",
-					e);
-		}
-	}
-
-	private URL genURL() throws MalformedURLException {
-		String protocol = engine.isSecure() ? "https://" : "http://";
-		return new URL(protocol + engine.getHost() + ":" + engine.getPort()
-				+ engine.getBasePath() + engine.getPath() + engine.genQuery());
+	protected void send(Iterator<String> data) throws Exception {
+		queue = data;
+		interruptConnection();
 	}
 
 	@Override
-	public void send(String data) throws Exception {
-		throw new RuntimeException(
-				"Cannot send simple messages. Internal error."
-						+ "Please report this at https://github.com/Gottox/socket.io-java-client/issues");
-	}
-
-	@Override
-	public void send(String[] data) throws Exception {
-		urlConnection.disconnect();
-		synchronized (this) {
-			HttpURLConnection post = (HttpURLConnection) genURL()
-					.openConnection();
-			post.setDoOutput(true);
-			OutputStreamWriter output = new OutputStreamWriter(
-					post.getOutputStream());
-			for (String packet : data) {
-				output.append(packet.length() + ":" + packet);
+	public void run() {
+		while (isDisconnecting() == false) {
+			Thread.yield();
+			try {
+				setConnected(true);
+				if (queue != null) {
+					URLConnection post = getUrl().openConnection();
+					post.setDoOutput(true);
+					post.setDoInput(true);
+					OutputStreamWriter output = new OutputStreamWriter(
+							post.getOutputStream());
+					while (queue.hasNext()) {
+						String packet = queue.next();
+						output.append(packet.length() + ":" + packet);
+						queue.remove();
+					}
+					output.close();
+					queue = null;
+					InputStream input = post.getInputStream();
+					while(input.read() != -1) {}
+					input.close();
+				} else {
+					getConnection = (HttpURLConnection) getUrl().openConnection();
+					stream(new InputStreamReader(getConnection.getInputStream()));
+				}
+			} catch (IOException e) {
+				failed("HTTP Thread failed", e);
+			} finally {
+				getConnection = null;
+				setConnected(false);
 			}
-			output.close();
-
-			BufferedReader input = new BufferedReader(new InputStreamReader(
-					post.getInputStream()));
-			String line;
-			while ((line = input.readLine()) != null)
-				LOGGER.info("response: " + line);
-			input.close();
 		}
 	}
 
 	@Override
-	public void close() throws Exception {
-		urlConnection.disconnect();
-		engine.transportClose(this);
+	protected void close() {
+		interruptConnection();
+	}
+
+	private void interruptConnection() {
+		HttpURLConnection getConnection = this.getConnection;
+		if (getConnection != null)
+			getConnection.disconnect();
 	}
 
 	@Override
-	public String getTransportName() {
+	public String getName() {
 		return NAME;
-	}
-
-	@Override
-	public boolean canSendBulk() {
-		return true;
 	}
 }
