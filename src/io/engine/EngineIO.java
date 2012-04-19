@@ -81,6 +81,11 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
+	public EngineIO pingTimeout(int pingTimeout) {
+		this.pingTimeout = pingTimeout;
+		return this;
+	}
+
 	public EngineIO query(Map<String, String> query) {
 		this.query = new ConcurrentHashMap<String, String>(query);
 		return this;
@@ -286,12 +291,20 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public void close() {
+		IOTransport transport = currentTransport;
 		try {
-			send(TYPE_CLOSE, "");
-			Thread.yield();
-			currentTransport.shutdown();
+			for (IOTransport t : new IOTransport[] { currentTransport,
+					upgradingTransport }) {
+				transport = t;
+				if (t != null) {
+					send(t, TYPE_CLOSE, "");
+					Thread.yield();
+					t.shutdown();
+				}
+			}
+			callback.onClose();
 		} catch (Exception e) {
-			transportFailed(currentTransport, "failed during close", e);
+			transportFailed(transport, "failed during close", e);
 		}
 	}
 
@@ -312,9 +325,10 @@ public class EngineIO implements EngineIOCallback {
 		try {
 			JSONObject open = new JSONObject(message.toString());
 			setSid(open.getString("sid"));
-			setPingTimeout(open.getInt("pingTimeout"));
+			pingTimeout(open.getInt("pingTimeout"));
 			JSONArray jsonUpgrades = open.optJSONArray("upgrades");
-			if (jsonUpgrades != null && jsonUpgrades.length() != 0) {
+			if (isUpgrade() && jsonUpgrades != null
+					&& jsonUpgrades.length() != 0) {
 				String[] upgrades = new String[jsonUpgrades.length()];
 				for (int i = 0; i < jsonUpgrades.length(); i++)
 					upgrades[i] = jsonUpgrades.getString(i);
@@ -328,12 +342,13 @@ public class EngineIO implements EngineIOCallback {
 					}
 				}
 			}
+			callback.onOpen();
 		} catch (JSONException e) {
 			callback.onError(new EngineIOException("Garbage received", e));
 		}
 	}
 
-	private void resetPingTimeout() {
+	private synchronized void resetPingTimeout() {
 		if (pingTimeoutTask != null)
 			pingTimeoutTask.cancel();
 		pingTimeoutTask = new PingTimeoutTask();
@@ -344,12 +359,10 @@ public class EngineIO implements EngineIOCallback {
 		try {
 			currentTransport.shutdown();
 		} catch (Exception e) {
-			logger.log(Level.WARNING, "Error while closing transport", e);
+			// TODO: recheck if we can safely ignore this exception
+			callback.onError(new EngineIOException(
+					"Error while closing transport", e));
 		}
-	}
-
-	private void setPingTimeout(int pingTimeout) {
-		this.pingTimeout = pingTimeout;
 	}
 
 	@Override
