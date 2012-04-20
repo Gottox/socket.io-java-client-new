@@ -67,7 +67,7 @@ public class EngineIOTest extends EngineIO {
 		transport.setConfiguration(null); // tell TestTransport to skip sending configuration
 		this.open();
 		wait();
-		assertEquals("timeout should causeonError()", ERROR, events.poll());
+		assertEquals("timeout should cause onError()", ERROR, events.poll());
 	}
 	
 	@Test
