@@ -29,7 +29,7 @@ public class EngineIOTest extends EngineIO {
 
 	@Before
 	public void setUp() throws Exception {
-		this.transports(new IOTransport[] { transport });
+		this.transports(transport);
 		transport.setConfiguration("{\"sid\":\"ASID\", pingTimeout: 1000}");
 		events.clear();
 	}
@@ -37,6 +37,7 @@ public class EngineIOTest extends EngineIO {
 	@After
 	public void tearDown() throws Exception {
 		assertEquals("Assert no left events", null, events.poll());
+		assertEquals("transport should not send anything else", null, transport.output.poll());
 	}
 
 	@Test
@@ -96,6 +97,25 @@ public class EngineIOTest extends EngineIO {
 		this.close();
 		assertEquals("Transport should send close packet", "1", transport.output.poll());
 		assertEquals("Should call onClose()", CLOSE, events.poll());
+	}
+	
+	@Test
+	public void testUpgrade() {
+		TestTransport upgradeTransport = new TestTransport("upgrade");
+		transport.setConfiguration("{\"sid\":\"ASID\", pingTimeout: 100000, \"upgrades\": [ \"upgrade\" ]}");
+		transports(transport, upgradeTransport);
+		this.open();
+		upgradeTransport.allowSend(true);
+		transport.allowSend(true);
+		assertEquals("Should call onOpen()", OPEN, events.poll());
+		assertEquals("Upgrading transport should receive a ping probe", "2probe", upgradeTransport.output.poll());
+		send(DATA);
+		assertEquals("Transport should send", "4"+DATA, transport.output.poll());
+		upgradeTransport.inject("3probe");
+		assertEquals("Upgrading transport should send upgrade packet", "5", upgradeTransport.output.poll());
+		send(DATA);
+		assertEquals("Upgrading transport should handle messages now", "4"+DATA, upgradeTransport.output.poll());
+		assertEquals("transport should not send anything else", null, upgradeTransport.output.poll());
 	}
 
 	@Override
