@@ -106,7 +106,7 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
-	public EngineIO transports(IOTransport[] transports) {
+	public EngineIO transports(IOTransport... transports) {
 		if (transports == null || transports.length == 0)
 			throw new RuntimeException("Transports cannot be empty.");
 		this.transports = transports;
