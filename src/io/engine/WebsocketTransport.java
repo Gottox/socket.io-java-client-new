@@ -32,7 +32,6 @@ class WebsocketTransport extends IOTransport {
 
 		@Override
 		public void onMessage(String message) {
-			System.out.println("Websocket received");
 			packet(message);
 		}
 

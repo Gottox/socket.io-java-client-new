@@ -55,8 +55,8 @@ class PollingTransport extends IOTransport implements Runnable {
 
 	@Override
 	public void run() {
+		Thread.yield();
 		while (isDisconnecting() == false) {
-			Thread.yield();
 			try {
 				setConnected(true);
 				if (queue != null) {
@@ -79,6 +79,7 @@ class PollingTransport extends IOTransport implements Runnable {
 					getConnection = (HttpURLConnection) getUrl().openConnection();
 					stream(new InputStreamReader(getConnection.getInputStream()));
 				}
+				Thread.yield();
 			} catch (IOException e) {
 				failed("HTTP Thread failed", e);
 				try {
