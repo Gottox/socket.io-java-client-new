@@ -108,7 +108,7 @@ public abstract class IOTransport {
 	}
 	
 	protected String getPath() {
-		return engine.getBasePath() + engine.getPath();
+		return engine.getBasePath() + "/" + engine.getResource() + "/";
 	}
 	
 	protected String getQuery(IOTransport transport) {
