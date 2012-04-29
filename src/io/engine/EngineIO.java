@@ -17,24 +17,26 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 public class EngineIO implements EngineIOCallback {
-	final private char TYPE_OPEN = '0';
-	final private char TYPE_CLOSE = '1';
-	final private char TYPE_PING = '2';
-	final private char TYPE_PONG = '3';
-	final private char TYPE_MESSAGE = '4';
-	final private char TYPE_UPGRADE = '5';
-	final private String PROBE = "probe";
-	final private Logger logger = Logger.getLogger("engine.io");
+	final private static char TYPE_OPEN = '0';
+	final private static char TYPE_CLOSE = '1';
+	final private static char TYPE_PING = '2';
+	final private static char TYPE_PONG = '3';
+	final private static char TYPE_MESSAGE = '4';
+	final private static char TYPE_UPGRADE = '5';
+	final private static String PROBE = "probe";
+	final private static Logger LOGGER = Logger.getLogger("engine.io");
+	final private static Pattern TRIM_SLASH = Pattern.compile("/$");
 
 	private String host = "localhost";
 	private int port = 80;
-	private String resource = "";
+	private String resource = "default";
 	private ConcurrentHashMap<String, String> query = null;
 	private boolean secure = false;
 	private String basePath = "/engine.io";
@@ -76,8 +78,8 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
-	public EngineIO path(String path) {
-		this.resource = path;
+	public EngineIO resource(String resource) {
+		this.resource = resource;
 		return this;
 	}
 
@@ -97,7 +99,7 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public EngineIO basePath(String basePath) {
-		this.basePath = basePath;
+		this.basePath = basePath.replaceFirst("/$", "");
 		return this;
 	}
 
@@ -132,7 +134,7 @@ public class EngineIO implements EngineIOCallback {
 		return port;
 	}
 
-	public String getPath() {
+	public String getResource() {
 		return resource;
 	}
 
@@ -145,7 +147,7 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public String getBasePath() {
-		return basePath;
+		return TRIM_SLASH.matcher(basePath).replaceFirst("");
 	}
 
 	public boolean isUpgrade() {
@@ -233,7 +235,7 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	void transportPacket(IOTransport transport, String data) {
-		logger.info("< " + data);
+		LOGGER.info("< " + data);
 		try {
 			char type = data.charAt(0);
 			CharSequence message = data.subSequence(1, data.length());
@@ -256,12 +258,12 @@ public class EngineIO implements EngineIOCallback {
 			// We're not supposed to handle them
 			case TYPE_UPGRADE:
 			default:
-				logger.warning("Received package type " + type
+				LOGGER.warning("Received package type " + type
 						+ " we can't handle this.");
 			}
 			resetPingTimeout();
 		} catch (Exception e) {
-			logger.log(Level.WARNING, "Garbaged packet. Ignoring...", e);
+			LOGGER.log(Level.WARNING, "Garbaged packet. Ignoring...", e);
 		}
 	}
 
@@ -314,9 +316,9 @@ public class EngineIO implements EngineIOCallback {
 				send(transport, TYPE_UPGRADE, "");
 				currentTransport = transport;
 				upgradingTransport = null;
-				logger.info("Upgrade successful");
+				LOGGER.info("Upgrade successful");
 			} catch (Exception e) {
-				logger.log(Level.WARNING, "Upgrade failed", e);
+				LOGGER.log(Level.WARNING, "Upgrade failed", e);
 			}
 		}
 	}
@@ -367,21 +369,21 @@ public class EngineIO implements EngineIOCallback {
 
 	@Override
 	public void onOpen() {
-		logger.info("onOpen called.");
+		LOGGER.info("onOpen called.");
 	}
 
 	@Override
 	public void onMessage(String message) {
-		logger.info("onMessage called with message '" + message + "'");
+		LOGGER.info("onMessage called with message '" + message + "'");
 	}
 
 	@Override
 	public void onClose() {
-		logger.info("onClose called");
+		LOGGER.info("onClose called");
 	}
 
 	@Override
 	public void onError(EngineIOException exception) {
-		logger.log(Level.WARNING, "onError called with Exception", exception);
+		LOGGER.log(Level.WARNING, "onError called with Exception", exception);
 	}
 }
