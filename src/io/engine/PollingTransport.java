@@ -8,7 +8,6 @@
  */
 package io.engine;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -56,7 +55,7 @@ class PollingTransport extends IOTransport implements Runnable {
 	@Override
 	public void run() {
 		Thread.yield();
-		while (isDisconnecting() == false) {
+		while (isDisconnecting() == false || queue != null) {
 			try {
 				setConnected(true);
 				if (queue != null) {
@@ -77,10 +76,11 @@ class PollingTransport extends IOTransport implements Runnable {
 					input.close();
 				} else {
 					getConnection = (HttpURLConnection) getUrl().openConnection();
-					stream(new InputStreamReader(getConnection.getInputStream()));
+					if(getConnection != null)
+						stream(new InputStreamReader(getConnection.getInputStream()));
 				}
 				Thread.yield();
-			} catch (IOException e) {
+			} catch (Exception e) {
 				failed("HTTP Thread failed", e);
 				try {
 					Thread.sleep(1000);

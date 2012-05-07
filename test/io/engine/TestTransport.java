@@ -62,24 +62,38 @@ public class TestTransport extends IOTransport {
 			keepAliveTask = new KeepAlive();
 			this.timer.schedule(keepAliveTask, pingInterval, pingInterval);
 		}
-		if (configuration != null)
+		if (configuration != null) {
 			inject("0" + configuration);
+			output.add(EngineIOBaseTest.OPEN);
+		}
 	}
 
 	public void allowSend(boolean allow) {
 		setConnected(allow);
 	}
-
+	
 	@Override
 	protected void send(Iterator<String> datas) throws Exception {
 		String data;
 		while (datas.hasNext()) {
 			data = datas.next();
 			switch (data.charAt(0)) {
+			case '1':
+				// CLOSE: Nothing
+				break;
+			case '2':
+				output.add(EngineIOBaseTest.PING);
+				break;
 			case '3':
 				pongCounter++;
-			default:
-				output.add(data);
+				break;
+			case '4':
+				output.add(data.substring(1));
+				inject(data);
+				break;
+			case '5':
+				output.add(EngineIOBaseTest.UPGRADE);
+				break;
 			}
 			datas.remove();
 		}
@@ -91,6 +105,7 @@ public class TestTransport extends IOTransport {
 			keepAliveTask.cancel();
 			keepAliveTask = null;
 		}
+		output.add(EngineIOBaseTest.CLOSE);
 	}
 
 	public boolean acknowledgedAllPing() {

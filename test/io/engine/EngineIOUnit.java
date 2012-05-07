@@ -7,39 +7,35 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class EngineIOUnit extends EngineIO {
-	private static final String OPEN = "open";
-	private static final String CLOSE = "close";
-	private static final String ERROR = "error";
-	private static final String DATA = "data";
+public class EngineIOUnit extends EngineIOBaseTest {
+	private static final String OPEN = "OPEN";
+	private static final String CLOSE = "CLOSE";
+	private static final String ERROR = "ERROR";
+	private static final String DATA = "DATA";
 	TestTransport transport = new TestTransport("TEST");
-	LinkedList<String> events = new LinkedList<String>();
-	
-	private String pollEvent() {
-		return events.poll();
-	}
 
-	private String pollServer() {
+	protected String pollServer() {
 		return transport.output.poll();
 	}
+	
+	@Override
+	public void send(String data) {
+		transport.allowSend(true);
+		super.send(data);
+	}
+	
 
 	@Before
 	public void setUp() throws Exception {
 		this.transports(transport);
 		transport.setConfiguration("{\"sid\":\"ASID\", pingTimeout: 5000}");
-		events.clear();
-	}
-
-	@After
-	public void tearDown() throws Exception {
-		assertEquals("Assert no left events", null, pollEvent());
-		assertEquals("transport should not send anything else", null, pollServer());
 	}
 
 	@Test
 	public void testOpenGarbaged() {
 		transport.setConfiguration("garbage");
 		this.open();
+		assertEquals("Server should have a new connection", OPEN, pollServer());
 		assertEquals("garbage open packet should cause 'onError'", ERROR, pollEvent());
 	}
 
@@ -47,6 +43,7 @@ public class EngineIOUnit extends EngineIO {
 	public void testOpenEmpty() {
 		transport.setConfiguration("{}");
 		this.open();
+		assertEquals("Server should receive open", OPEN, pollServer());
 		assertEquals("garbage open packet should cause 'onError'", ERROR, pollEvent());
 	}
 
@@ -54,6 +51,7 @@ public class EngineIOUnit extends EngineIO {
 	public void testOpenMissingPingTimeout() {
 		transport.setConfiguration("{\"sid\":\"ASID\"}");
 		this.open();
+		assertEquals("Server should receive open", OPEN, pollServer());
 		assertEquals("garbage open packet should cause 'onError'", ERROR, pollEvent());
 	}
 
@@ -76,22 +74,15 @@ public class EngineIOUnit extends EngineIO {
 	}
 	
 	@Test
-	public void testClose() {
-		this.open();
-		assertEquals("Should call onOpen()", OPEN, pollEvent());
-		this.close();
-		assertEquals("Should call onClose()", CLOSE, pollEvent());
-	}
-	
-	@Test
 	public void testSend() {
-		this.open();
+		open();
 		assertEquals("Should call onOpen()", OPEN, pollEvent());
-		transport.allowSend(true);
+		assertEquals("Server should have a new connection", OPEN, pollServer());
 		send(DATA);
-		assertEquals("Transport should send", "4"+DATA, pollServer());
+		assertEquals("Transport should send", DATA, pollServer());
+		assertEquals("Should call onMessage()", DATA, pollEvent());
 		this.close();
-		assertEquals("Transport should send close packet", "1", pollServer());
+		assertEquals("Transport should send close packet", CLOSE, pollServer());
 		assertEquals("Should call onClose()", CLOSE, pollEvent());
 	}
 
@@ -102,40 +93,18 @@ public class EngineIOUnit extends EngineIO {
 		transports(transport, upgradeTransport);
 		this.open();
 		upgradeTransport.allowSend(true);
-		transport.allowSend(true);
 		assertEquals("Should call onOpen()", OPEN, pollEvent());
-		assertEquals("Upgrading transport should receive a ping probe", "2probe", upgradeTransport.output.poll());
+		assertEquals("Server should have a new connection", OPEN, pollServer());
+		assertEquals("Upgrading transport should receive a ping probe", PING, upgradeTransport.output.poll());
 		send(DATA);
-		assertEquals("Transport should send", "4"+DATA, pollServer());
+		assertEquals("Transport should send", DATA, pollServer());
+		assertEquals("Should call onMessage()", DATA, pollEvent());
 		upgradeTransport.inject("3probe");
-		assertEquals("Upgrading transport should send upgrade packet", "5", upgradeTransport.output.poll());
+		assertEquals("Upgrading transport should send upgrade packet", UPGRADE, upgradeTransport.output.poll());
 		send(DATA);
-		assertEquals("Upgrading transport should handle messages now", "4"+DATA, upgradeTransport.output.poll());
-		assertEquals("transport should not send anything else", null, upgradeTransport.output.poll());
+		assertEquals("Upgrading transport should handle messages now", DATA, upgradeTransport.output.poll());
+		assertEquals("transport should not send anything else", null, pollServer());
+		assertEquals("Should call onMessage()", DATA, pollEvent());
 	}
 
-	@Override
-	public synchronized void onOpen() {
-		events.add(OPEN);
-		notify();
-	}
-
-	@Override
-	public synchronized void onMessage(String message) {
-		events.add(message);
-		notify();
-	}
-
-	@Override
-	public synchronized void onClose() {
-		events.add(CLOSE);
-		notify();
-	}
-	
-	@Override
-	public synchronized void onError(EngineIOException exception) {
-		new Exception(exception).printStackTrace();
-		events.add(ERROR);
-		notify();
-	}
 }

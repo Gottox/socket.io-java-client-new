@@ -300,7 +300,6 @@ public class EngineIO implements EngineIOCallback {
 				transport = t;
 				if (t != null) {
 					send(t, TYPE_CLOSE, "");
-					Thread.yield();
 					t.shutdown();
 				}
 			}
