@@ -51,7 +51,7 @@ class WebsocketTransport extends IOTransport {
 		public void onError(Exception ex) {
 			failed("Websocket called onError", ex);
 			setConnected(false);
-			websocket.close();
+			this.close();
 			if (isDisconnecting() == false) {
 				try {
 					Thread.sleep(1000);

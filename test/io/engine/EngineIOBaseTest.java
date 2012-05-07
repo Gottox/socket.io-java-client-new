@@ -21,29 +21,28 @@ public abstract class EngineIOBaseTest extends EngineIO {
 	private LinkedBlockingQueue<String> events = new LinkedBlockingQueue<String>();
 	
 	@Override
-	public synchronized void onOpen() {
+	public void onOpen() {
 		gotEvent(OPEN);
 	}
 
 	@Override
-	public synchronized void onMessage(String message) {
+	public void onMessage(String message) {
 		gotEvent(message);
 	}
 
 	@Override
-	public synchronized void onClose() {
+	public void onClose() {
 		gotEvent(CLOSE);
 	}
 
 	@Override
-	public synchronized void onError(EngineIOException exception) {
+	public void onError(EngineIOException exception) {
 		gotEvent(ERROR);
 	}
 
 	private void gotEvent(String event) {
 		events.offer(event);
 		LOGGER.info("Client: " + event);
-		notify();
 	}
 	
 	final protected String pollEvent() {

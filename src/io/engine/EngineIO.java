@@ -167,7 +167,7 @@ public class EngineIO implements EngineIOCallback {
 				: currentTransport.getName();
 	}
 
-	public String getSid() {
+	public synchronized String getSid() {
 		return sid;
 	}
 

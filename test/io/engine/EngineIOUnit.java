@@ -49,26 +49,27 @@ public class EngineIOUnit extends EngineIOBaseTest {
 	public void testOpenMissingPingTimeout() {
 		transport.setConfiguration("{\"sid\":\"ASID\"}");
 		this.open();
+		assertEquals("timeout should cause onError()", ERROR, pollEvent());
 		assertEquals("Server should receive open", OPEN, pollServer());
-		assertEquals("garbage open packet should cause 'onError'", ERROR, pollEvent());
 	}
 
 	@Test
-	public synchronized void testPingTimeout() throws InterruptedException {
+	public void testPingTimeout() throws InterruptedException {
 		pingTimeout(10);	// Setting pingTimeout to 10 ms before connecting (default is 10 sec)
 		transport.setConfiguration(null); // tell TestTransport to skip sending configuration
 		this.open();
-		wait();
 		assertEquals("timeout should cause onError()", ERROR, pollEvent());
+		assertEquals("transport should be closed", CLOSE, pollServer());
 	}
 	
 	@Test
-	public synchronized void testOpenPingTimeout() throws InterruptedException {
+	public void testOpenPingTimeout() throws InterruptedException {
 		transport.setConfiguration("{\"sid\":\"ASID\", pingTimeout: 10}");
 		this.open();
 		assertEquals("Should call onOpen()", OPEN, pollEvent());
-		wait();
+		assertEquals("Server should have a new connection", OPEN, pollServer());
 		assertEquals("garbage open packet should cause onError()", ERROR, pollEvent());
+		assertEquals("transport should be closed", CLOSE, pollServer());
 	}
 	
 	@Test
