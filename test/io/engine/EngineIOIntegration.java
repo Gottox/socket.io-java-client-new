@@ -32,7 +32,7 @@ public class EngineIOIntegration extends EngineIOBaseTest {
 				"polling,websocket");
 		node = pBuilder.start();
 		stdout = new BufferedReader(
-				new InputStreamReader(node.getInputStream()));
+				new InputStreamReader(node.getInputStream(), "UTF-8"));
 
 		new Thread() {
 			public void run() {
@@ -56,6 +56,18 @@ public class EngineIOIntegration extends EngineIOBaseTest {
 		String line = stdout.readLine();
 		LOGGER.info("Server: " + line);
 		return line;
+	}
+	
+	@Test
+	public void testSend() throws Exception {
+		this.open();
+		assertEquals("Server should got open", OPEN, pollServer());
+		assertEquals("Should call onOpen()", OPEN, pollEvent());
+		this.send(DATA);
+		assertEquals("Server Should receive data", DATA, pollServer());
+		this.close();
+		assertEquals("Should call onClose()", CLOSE, pollEvent());
+		assertEquals("Server should got open", CLOSE, pollServer());
 	}
 
 	@After
