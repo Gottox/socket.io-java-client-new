@@ -9,7 +9,6 @@ public class EngineIOUnit extends EngineIOBaseTest {
 	private static final String OPEN = "OPEN";
 	private static final String CLOSE = "CLOSE";
 	private static final String ERROR = "ERROR";
-	private static final String DATA = "DATA";
 	TestTransport transport = new TestTransport("TEST");
 
 	protected String pollServer() {
