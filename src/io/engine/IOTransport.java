@@ -23,7 +23,7 @@ public abstract class IOTransport {
 		engine.transportFailed(this, message, exception);
 	}
 
-	protected void packet(String data) {
+	final protected void packet(String data) {
 		engine.transportPacket(this, data);
 	}
 
