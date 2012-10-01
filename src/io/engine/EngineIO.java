@@ -10,6 +10,8 @@ package io.engine;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Timer;
@@ -33,6 +35,7 @@ public class EngineIO implements EngineIOCallback {
 	final private static String PROBE = "probe";
 	final private static Logger LOGGER = Logger.getLogger("engine.io");
 	final private static Pattern TRIM_SLASH = Pattern.compile("/$");
+	final private static String ISSUE_URL = "https://github.com/Gottox/socket.io-java-client-new/issues";
 
 	private String host = "localhost";
 	private int port = 80;
@@ -197,7 +200,7 @@ public class EngineIO implements EngineIOCallback {
 		return this;
 	}
 
-	protected IOTransport instanceTransport(String[] names) {
+	protected IOTransport instanceTransport(List<String> names) {
 		if (names == null)
 			return this.transports[0];
 		for (String name : names) {
@@ -227,10 +230,8 @@ public class EngineIO implements EngineIOCallback {
 			}
 			return builder.toString();
 		} catch (UnsupportedEncodingException e) {
-			throw new RuntimeException(
-					"Unsupported Encoding. Internal error."
-							+ "Please report this at https://github.com/Gottox/socket.io-java-client/issues",
-					e);
+			throw new RuntimeException("Unsupported Encoding. Internal error."
+					+ "Please report this at " + ISSUE_URL, e);
 		}
 	}
 
@@ -259,7 +260,7 @@ public class EngineIO implements EngineIOCallback {
 			case TYPE_UPGRADE:
 			default:
 				LOGGER.warning("Received package type " + type
-						+ " we can't handle this.");
+						+ ". We can't handle this.");
 			}
 			resetPingTimeout();
 		} catch (Exception e) {
@@ -293,20 +294,19 @@ public class EngineIO implements EngineIOCallback {
 	}
 
 	public void close() {
-		IOTransport transport = currentTransport;
-		try {
-			for (IOTransport t : new IOTransport[] { currentTransport,
-					upgradingTransport }) {
-				transport = t;
+		for (IOTransport t : new IOTransport[] { currentTransport,
+				upgradingTransport }) {
+			try {
 				if (t != null) {
 					send(t, TYPE_CLOSE, "");
 					t.shutdown();
 				}
+			} catch (Exception e) {
+				transportFailed(t, "failed during close", e);
 			}
-			callback.onClose();
-		} catch (Exception e) {
-			transportFailed(transport, "failed during close", e);
 		}
+		callback.onClose();
+
 	}
 
 	private void receivedPong(IOTransport transport, CharSequence message) {
@@ -330,22 +330,28 @@ public class EngineIO implements EngineIOCallback {
 			JSONArray jsonUpgrades = open.optJSONArray("upgrades");
 			if (isUpgrade() && jsonUpgrades != null
 					&& jsonUpgrades.length() != 0) {
-				String[] upgrades = new String[jsonUpgrades.length()];
+				ArrayList<String> upgrades = new ArrayList<String>(jsonUpgrades.length());
 				for (int i = 0; i < jsonUpgrades.length(); i++)
-					upgrades[i] = jsonUpgrades.getString(i);
-				upgradingTransport = instanceTransport(upgrades);
-				if (upgradingTransport != null) {
-					upgradingTransport.start(this);
-					try {
-						send(upgradingTransport, TYPE_PING, PROBE);
-					} catch (Exception e) {
-						upgradingTransport = null;
-					}
-				}
+					upgrades.add(jsonUpgrades.getString(i));
+				tryUpgrade(upgrades);
 			}
 			callback.onOpen();
 		} catch (JSONException e) {
 			callback.onError(new EngineIOException("Garbage received", e));
+		}
+	}
+	
+	private void tryUpgrade(ArrayList<String> upgrades) {
+		if(upgradingTransport != null)
+			return; // TODO: Client should interrupt current upgrade process and start a new one instead. 
+		upgradingTransport = instanceTransport(upgrades);
+		if (upgradingTransport != null) {
+			upgradingTransport.start(this);
+			try {
+				send(upgradingTransport, TYPE_PING, PROBE);
+			} catch (Exception e) {
+				upgradingTransport = null;
+			}
 		}
 	}
 
