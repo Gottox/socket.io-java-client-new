@@ -37,11 +37,11 @@ function run() {
 		process.stderr.write("New Socket\n");
 		process.stdout.write(OPEN+"\n");
 		stdin.on('data', function(chunk) {
-			switch (chuck) {
+			switch (chunk) {
 			case CLOSE:
 				socket.close();
 			default:
-				socket.send(chuck);
+				socket.send(chunk);
 			}
 		});
 
