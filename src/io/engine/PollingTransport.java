@@ -8,6 +8,7 @@
  */
 package io.engine;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -47,7 +48,7 @@ class PollingTransport extends IOTransport implements Runnable {
 	}
 
 	@Override
-	protected void send(Iterator<String> data) throws Exception {
+	protected synchronized void send(Iterator<String> data) throws Exception {
 		queue = data;
 		interruptConnection();
 	}
@@ -59,33 +60,18 @@ class PollingTransport extends IOTransport implements Runnable {
 			try {
 				setConnected(true);
 				if (queue != null) {
-					URLConnection post = getUrl().openConnection();
-					post.setDoOutput(true);
-					post.setDoInput(true);
-					OutputStreamWriter output = new OutputStreamWriter(
-							post.getOutputStream());
-					while (queue.hasNext()) {
-						String packet = queue.next();
-						output.append(packet.length() + ":" + packet);
-						queue.remove();
-					}
-					output.close();
-					queue = null;
-					InputStream input = post.getInputStream();
-					while(input.read() != -1) {}
-					input.close();
+					sendQueue();
 				} else {
-					getConnection = (HttpURLConnection) getUrl().openConnection();
-					if(getConnection != null)
-						stream(new InputStreamReader(getConnection.getInputStream()));
+					receive();
 				}
 				Thread.yield();
 			} catch (Exception e) {
 				failed("HTTP Thread failed", e);
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e1) {
-				}
+				if (!isDisconnecting())
+					try {
+						Thread.sleep(1000);
+					} catch (InterruptedException e1) {
+					}
 			} finally {
 				getConnection = null;
 				setConnected(false);
@@ -94,12 +80,41 @@ class PollingTransport extends IOTransport implements Runnable {
 		httpThread = null;
 	}
 
+	private void receive() throws MalformedURLException, IOException {
+		synchronized (this) {
+			getConnection = (HttpURLConnection) getUrl().openConnection();
+		}
+		if(getConnection != null)
+			stream(new InputStreamReader(getConnection.getInputStream()));
+	}
+
+	private void sendQueue() throws MalformedURLException, IOException {
+		URLConnection post = getUrl().openConnection();
+		post.setDoOutput(true);
+		post.setDoInput(true);
+		post.addRequestProperty("Content-Encoding", "UTF8");
+		OutputStreamWriter output = new OutputStreamWriter(
+				post.getOutputStream(), "UTF-8");
+		synchronized (this) {
+			while (queue.hasNext()) {
+				String packet = queue.next();
+				output.append(packet.length() + ":" + packet);
+				queue.remove();
+			}
+		}
+		output.close();
+		queue = null;
+		InputStream input = post.getInputStream();
+		while(input.read() != -1) {}
+		input.close();
+	}
+
 	@Override
 	protected void close() {
 		interruptConnection();
 	}
 
-	private void interruptConnection() {
+	private synchronized void interruptConnection() {
 		HttpURLConnection getConnection = this.getConnection;
 		if (getConnection != null)
 			getConnection.disconnect();
