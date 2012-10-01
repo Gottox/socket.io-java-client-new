@@ -15,7 +15,7 @@ public abstract class EngineIOBaseTest extends EngineIO {
 	public static final String ERROR = "ERROR";
 	public static final String PING = "PING";
 	public static final String UPGRADE = "UPGRADE";
-	public static final String DATA = "DATA";
+	public static final String DATA = "\u263A DATA \" { ]";
 	public static final Logger LOGGER = Logger.getLogger("EngineIOBaseTest");
 	
 	private LinkedBlockingQueue<String> events = new LinkedBlockingQueue<String>();
@@ -62,6 +62,7 @@ public abstract class EngineIOBaseTest extends EngineIO {
 		assertEquals("Should call onClose()", CLOSE, pollEvent());
 		assertEquals("Server should got open", CLOSE, pollServer());
 	}
+	
 	
 	protected abstract String pollServer() throws Exception;
 	
